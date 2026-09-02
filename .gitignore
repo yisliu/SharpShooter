@@ -1,0 +1,68 @@
+# =============== #
+# Unity .gitignore
+# =============== #
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Unity generated folders
+[Ll]ibrary/
+[Tt]emp/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Oo]bj/
+[Mm]emoryCaptures/
+UserSettings/
+UIElementsSchema/
+
+# Cache / diagnostics
+sysinfo.txt
+*.stacktrace
+
+# IDE / Editor files
+.vs/
+.idea/
+# JetBrains / IntelliJ (IDEA, Rider, WebStorm, etc.)
+*.iml
+*.iws
+*.ipr
+out/
+*.csproj
+*.sln
+.user
+*.suo
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+
+# Unity auto-generated files
+*.unitypackage
+*.mdb
+*.pdb
+
+# Addressables cache
+/[Aa]ssets/[Aa]ddressableAssetsData/*/*.bin*
+
+# Crash reports
+*.dmp
+*.log
+
+# Lightmap & GI data
+/[Aa]ssets/**/Lightmap-*/
+[Ll]ightmapSnapshot.asset
+/[Aa]ssets/**/LightingData.asset
+/[Aa]ssets/**/ReflectionProbe-*.exr
+
+# Build artifacts
+*.apk
+*.aab
+*.xcodeproj
+*.xcworkspace
+*.xcuserstate
+*.ipa
+*.exe
+*.app
+*.msi

@@ -1,0 +1,248 @@
+using UnityEngine;
+
+[RequireComponent(typeof(CharacterController))]
+[RequireComponent(typeof(Animator))]
+public class PlayerMovementFixed : MonoBehaviour
+{
+    [Header("Movement Settings")]
+    public float walkSpeed = 5f;
+    public float runSpeed = 10f;
+    public float gravity = -9.81f;
+    public float jumpHeight = 3f;
+    public float rotationSpeed = 180f;
+
+    [Header("Camera Settings")]
+    public Transform playerCamera;
+    public float mouseSensitivity = 2f;
+    public float maxLookAngle = 80f;
+
+    [Header("Ground Check")]
+    public Transform groundCheck;
+    public float groundDistance = 0.4f;
+    public LayerMask groundMask;
+
+    [Header("Effects")]
+    public ParticleSystem jumpStarParticles;
+
+    [Header("Animation Settings")]
+    [SerializeField] private string horizontalParam = "Hor";
+    [SerializeField] private string verticalParam = "Vert";
+    [SerializeField] private string stateParam = "State";
+    [SerializeField] private string jumpParam = "IsJump";
+    [SerializeField] private float animationBlendSpeed = 4.5f;
+
+    private CharacterController controller;
+    private Animator animator;
+    private Vector3 velocity;
+    private bool isGrounded;
+    private bool wasGrounded = true;
+
+    // Animation smoothing
+    private Vector2 currentAnimAxis;
+    private float currentAnimState;
+
+    // Camera rotation
+    private float cameraPitch = 0f;
+
+    void Start()
+    {
+        controller = GetComponent<CharacterController>();
+        animator = GetComponent<Animator>();
+
+        // Auto-find particle system if not assigned
+        if (jumpStarParticles == null)
+        {
+            jumpStarParticles = GetComponentInChildren<ParticleSystem>();
+        }
+
+        // Ensure particles don't play on start
+        if (jumpStarParticles != null)
+        {
+            var main = jumpStarParticles.main;
+            main.playOnAwake = false;
+            jumpStarParticles.Stop();
+            jumpStarParticles.Clear();
+        }
+    }
+
+    void Update()
+    {
+        // Improved ground check - use both methods
+        bool controllerGrounded = controller.isGrounded;
+        bool sphereGrounded = false;
+
+        if (groundCheck != null && groundMask != 0)
+        {
+            sphereGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
+        }
+
+        // Consider grounded if either method detects ground
+        isGrounded = controllerGrounded || sphereGrounded;
+
+        // Also check with a raycast from center as backup
+        if (!isGrounded)
+        {
+            RaycastHit hit;
+            float rayDistance = (controller.height / 2f) + 0.3f;
+            if (Physics.Raycast(transform.position, Vector3.down, out hit, rayDistance))
+            {
+                isGrounded = true;
+            }
+        }
+
+        // Reset velocity when grounded
+        if (isGrounded && velocity.y < 0)
+        {
+            velocity.y = -2f;
+        }
+
+        // Rotation input
+        float rotationInput = 0f;
+        if (Input.GetKey(KeyCode.LeftArrow))
+        {
+            rotationInput = -1f;
+        }
+        else if (Input.GetKey(KeyCode.RightArrow))
+        {
+            rotationInput = 1f;
+        }
+
+        // Apply rotation
+        if (rotationInput != 0f)
+        {
+            transform.Rotate(0, rotationInput * rotationSpeed * Time.deltaTime, 0);
+        }
+
+        // Mouse look - horizontal rotates player, vertical tilts camera
+        float mouseX = Input.GetAxis("Mouse X");
+        float mouseY = Input.GetAxis("Mouse Y");
+
+        // Rotate player body left/right with mouse X
+        transform.Rotate(0, mouseX * mouseSensitivity, 0);
+
+        // Tilt camera up/down with mouse Y
+        if (playerCamera != null)
+        {
+            cameraPitch -= mouseY * mouseSensitivity;
+            cameraPitch = Mathf.Clamp(cameraPitch, -maxLookAngle, maxLookAngle);
+            playerCamera.localEulerAngles = new Vector3(cameraPitch, 0f, 0f);
+        }
+
+        // Movement input
+        float x = Input.GetAxis("Horizontal");
+        float z = Input.GetAxis("Vertical");
+
+        Vector3 move = transform.right * x + transform.forward * z;
+
+        // Running
+        float currentSpeed = Input.GetKey(KeyCode.LeftShift) && isGrounded ? runSpeed : walkSpeed;
+        controller.Move(move * currentSpeed * Time.deltaTime);
+
+        // Jump input
+        if (Input.GetButtonDown("Jump"))
+        {
+            Debug.Log($"Space pressed! Final isGrounded: {isGrounded}, controller: {controllerGrounded}, sphere: {sphereGrounded}");
+
+            if (isGrounded)
+            {
+                velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+                Debug.Log($"JUMP EXECUTED! velocity.y = {velocity.y}");
+                PlayJumpEffect();
+            }
+            else
+            {
+                Debug.Log("JUMP BLOCKED - Not grounded!");
+            }
+        }
+
+        // Apply gravity
+        float oldVelocityY = velocity.y;
+        velocity.y += gravity * Time.deltaTime;
+
+        Vector3 moveAmount = velocity * Time.deltaTime;
+        controller.Move(moveAmount);
+
+        // Debug: Check if velocity was changed
+        if (oldVelocityY > 5f) // Only log when we just jumped
+        {
+            Debug.Log($"After Move: velocity.y went from {oldVelocityY} to {velocity.y}, moved {moveAmount.y}m");
+        }
+
+        // Update animations
+        UpdateAnimations(x, z, currentSpeed);
+
+        // Track grounded state for next frame
+        wasGrounded = isGrounded;
+    }
+
+    void UpdateAnimations(float inputX, float inputZ, float currentSpeed)
+    {
+        if (animator == null) return;
+
+        // Calculate animation axis relative to character's local space
+        Vector2 targetAnimAxis = new Vector2(inputX, inputZ);
+
+        // Smooth the animation values for blend tree
+        if (targetAnimAxis.sqrMagnitude > 0.01f)
+        {
+            Vector2 direction = (targetAnimAxis - currentAnimAxis).normalized;
+            currentAnimAxis = Vector2.ClampMagnitude(
+                currentAnimAxis + animationBlendSpeed * Time.deltaTime * direction,
+                1f
+            );
+        }
+        else
+        {
+            // Smoothly return to zero when no input
+            currentAnimAxis = Vector2.ClampMagnitude(
+                currentAnimAxis - animationBlendSpeed * Time.deltaTime * currentAnimAxis.normalized,
+                Mathf.Max(0, currentAnimAxis.magnitude - animationBlendSpeed * Time.deltaTime)
+            );
+        }
+
+        // Calculate state (0 = walk, 1 = run)
+        float targetState = Input.GetKey(KeyCode.LeftShift) && isGrounded ? 1f : 0f;
+        currentAnimState = Mathf.MoveTowards(currentAnimState, targetState, animationBlendSpeed * Time.deltaTime);
+
+        // Set animator parameters
+        animator.SetFloat(horizontalParam, currentAnimAxis.x);
+        animator.SetFloat(verticalParam, currentAnimAxis.y);
+        animator.SetFloat(stateParam, currentAnimState);
+        animator.SetBool(jumpParam, !isGrounded);
+    }
+
+    void PlayJumpEffect()
+    {
+        if (jumpStarParticles == null)
+        {
+            Debug.LogError("jumpStarParticles is NULL! Assign it in Inspector or add a ParticleSystem as child.");
+            return;
+        }
+
+        // Completely reset and restart the particle system
+        jumpStarParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        jumpStarParticles.Clear();
+        jumpStarParticles.Simulate(0, true, true);
+        jumpStarParticles.Play();
+
+        // Debug info
+        var main = jumpStarParticles.main;
+        var emission = jumpStarParticles.emission;
+        var renderer = jumpStarParticles.GetComponent<ParticleSystemRenderer>();
+
+        Debug.Log($"Jump effect - Playing: {jumpStarParticles.isPlaying}, Emitting: {jumpStarParticles.isEmitting}, " +
+                  $"MaxParticles: {main.maxParticles}, Duration: {main.duration}, " +
+                  $"Material: {(renderer.material != null ? renderer.material.name : "NULL")}, " +
+                  $"Emission enabled: {emission.enabled}");
+    }
+
+    // Draw ground check sphere in editor
+    void OnDrawGizmosSelected()
+    {
+        if (groundCheck != null)
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireSphere(groundCheck.position, groundDistance);
+        }
+    }
+}
